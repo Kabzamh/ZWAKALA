@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zwakala — Ride Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#10131A;
+    --ink-soft:#1B2029;
+    --paper:#F6F4EF;
+    --paper-dim:#EDEAE2;
+    --amber:#FFC94D;
+    --amber-deep:#E8A927;
+    --teal:#2DD4BF;
+    --mute:#8A93A3;
+    --mute-dark:#5B6472;
+    --danger:#FF5C5C;
+    --line:#E4E0D6;
+    --radius:20px;
+    --disp: 'Space Grotesk', sans-serif;
+    --body: 'Manrope', sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+  *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    font-family:var(--body);
+    background:
+      radial-gradient(circle at 20% 10%, #1c2130 0%, #0b0d13 60%),
+      var(--ink);
+    display:flex; align-items:center; justify-content:center;
+    min-height:100vh; padding:40px 16px;
+    color:var(--ink);
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.01ms !important; animation-iteration-count:1 !important; transition-duration:0.01ms !important;}
+  }
+
+  /* ---------- phone shell ---------- */
+  .rig{display:flex; flex-direction:column; align-items:center; gap:18px;}
+  .brandline{display:flex; align-items:center; gap:10px; color:var(--paper); font-family:var(--disp); letter-spacing:0.02em;}
+  .brandline .dot{width:8px; height:8px; border-radius:50%; background:var(--teal); box-shadow:0 0 12px var(--teal);}
+  .brandline b{font-size:15px; font-weight:700;}
+  .brandline span{font-size:12px; color:var(--mute); font-weight:500;}
+
+  .phone{
+    width:390px; height:820px;
+    background:var(--paper);
+    border-radius:46px;
+    border:10px solid #05060a;
+    box-shadow:0 40px 80px -20px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04);
+    position:relative;
+    overflow:hidden;
+  }
+  .notch{
+    position:absolute; top:0; left:50%; transform:translateX(-50%);
+    width:150px; height:26px; background:#05060a;
+    border-bottom-left-radius:16px; border-bottom-right-radius:16px;
+    z-index:50;
+  }
+  .statusbar{
+    position:absolute; top:0; left:0; right:0; height:48px;
+    display:flex; align-items:flex-end; justify-content:space-between;
+    padding:0 26px 8px; font-family:var(--mono); font-size:12px; font-weight:600;
+    z-index:40; pointer-events:none;
+  }
+
+  .screen{
+    position:absolute; inset:0;
+    opacity:0; pointer-events:none; visibility:hidden;
+    transition:opacity 0.28s ease;
+  }
+  .screen.active{opacity:1; pointer-events:auto; visibility:visible;}
+
+  /* ---------- map layer ---------- */
+  .map{
+    position:absolute; inset:0;
+    background:
+      linear-gradient(180deg, #E9E6DC 0%, #E3DFD2 100%);
+    overflow:hidden;
+  }
+  .map svg{position:absolute; inset:0; width:100%; height:100%;}
+  .grid-line{stroke:#D6D1C2; stroke-width:2;}
+  .grid-line.bold{stroke:#CBC5B2; stroke-width:3;}
+  .block{fill:#DEDACE;}
+  .route-path{
+    fill:none; stroke:var(--ink); stroke-width:4; stroke-linecap:round;
+    stroke-dasharray:8 8;
+    animation:dash 1.4s linear infinite;
+  }
+  @keyframes dash{to{stroke-dashoffset:-32;}}
+  .pin{filter:drop-shadow(0 3px 6px rgba(0,0,0,0.25));}
+  .car-marker{
+    filter:drop-shadow(0 4px 10px rgba(0,0,0,0.35));
+  }
+  .pulse-ring{
+    fill:none; stroke:var(--teal); stroke-width:2; opacity:0.6;
+    animation:pulse 2s ease-out infinite;
+    transform-origin:center;
+  }
+  @keyframes pulse{
+    0%{transform:scale(0.4); opacity:0.7;}
+    100%{transform:scale(2.6); opacity:0;}
+  }
+
+  /* ---------- shared UI atoms ---------- */
+  .topbar{
+    position:absolute; top:56px; left:20px; right:20px;
+    display:flex; align-items:center; justify-content:space-between; z-index:10;
+  }
+  .iconbtn{
+    width:44px; height:44px; border-radius:14px;
+    background:var(--paper); border:none;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 6px 16px rgba(16,19,26,0.15);
+    cursor:pointer; color:var(--ink);
+  }
+  .iconbtn:active{transform:scale(0.94);}
+
+  .sheet{
+    position:absolute; left:0; right:0; bottom:0; z-index:20;
+    background:var(--paper);
+    border-radius:28px 28px 0 0;
+    box-shadow:0 -20px 40px rgba(16,19,26,0.18);
+    padding:22px 22px calc(22px + env(safe-area-inset-bottom, 0px));
+  }
+  .grabber{width:36px; height:4px; background:var(--line); border-radius:2px; margin:0 auto 16px;}
+
+  h1.disp{font-family:var(--disp); font-weight:700; letter-spacing:-0.01em;}
+  .eyebrow{font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--mute-dark);}
+
+  .btn-primary{
+    width:100%; padding:16px; border:none; border-radius:16px;
+    background:var(--ink); color:var(--paper);
+    font-family:var(--body); font-weight:700; font-size:15px;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    cursor:pointer; transition:transform 0.15s ease, background 0.15s ease;
+  }
+  .btn-primary:active{transform:scale(0.98);}
+  .btn-primary:disabled{background:#C7C2B4; cursor:not-allowed;}
+  .btn-primary.amber{background:var(--amber); color:var(--ink);}
+  .btn-ghost{
+    width:100%; padding:14px; border-radius:16px; border:1.5px solid var(--line);
+    background:transparent; color:var(--ink); font-weight:700; font-size:14px; cursor:pointer;
+  }
+  .fare-mono{font-family:var(--mono); font-weight:700; letter-spacing:-0.02em;}
+
+  /* ---------- SCREEN 1: home / search ---------- */
+  #home .searchcard{
+    position:absolute; left:20px; right:20px; bottom:120px; z-index:15;
+  }
+  .field{
+    background:var(--paper); border-radius:16px; padding:16px 18px;
+    display:flex; align-items:center; gap:12px;
+    box-shadow:0 10px 28px rgba(16,19,26,0.16);
+    cursor:pointer; margin-bottom:10px;
+  }
+  .field .dotcol{display:flex; flex-direction:column; align-items:center; gap:4px; width:10px;}
+  .field .sq{width:9px; height:9px; border-radius:2px; background:var(--ink);}
+  .field .cir{width:9px; height:9px; border-radius:50%; border:2px solid var(--mute); background:transparent;}
+  .field .connector{width:1.5px; height:16px; background:var(--line);}
+  .field-text{font-size:14.5px; font-weight:600; color:var(--mute-dark);}
+  .field-text.filled{color:var(--ink);}
+  .field-wrap .field{margin-bottom:0;}
+  .field-wrap{background:var(--paper); border-radius:16px; box-shadow:0 10px 28px rgba(16,19,26,0.16);}
+  .field-wrap .field{box-shadow:none; margin-bottom:0; border-bottom:1px solid var(--line);}
+  .field-wrap .field:last-child{border-bottom:none;}
+
+  .chiprow{display:flex; gap:8px; margin-top:12px; overflow-x:auto;}
+  .chip{
+    flex-shrink:0; padding:9px 14px; border-radius:100px; background:var(--paper);
+    font-size:12.5px; font-weight:700; color:var(--ink); display:flex; align-items:center; gap:6px;
+    box-shadow:0 6px 16px rgba(16,19,26,0.12); cursor:pointer;
+  }
+
+  #home .bottomtab{
+    position:absolute; left:0; right:0; bottom:0; height:100px; z-index:15;
+    background:var(--paper); border-radius:28px 28px 0 0;
+    padding:16px 22px; box-shadow:0 -14px 30px rgba(16,19,26,0.12);
+  }
+  .bottomtab .greet{font-size:13px; color:var(--mute-dark); font-weight:600;}
+  .bottomtab h2{font-family:var(--disp); font-size:19px; margin-top:2px;}
+
+  /* ---------- SCREEN 2: ride select ---------- */
+  #rides .sheet{max-height:64%; overflow-y:auto;}
+  .route-mini{display:flex; align-items:center; gap:10px; padding:12px 14px; background:var(--paper-dim); border-radius:14px; margin-bottom:16px;}
+  .route-mini .txt{font-size:12.5px; font-weight:600; color:var(--mute-dark); line-height:1.5;}
+  .route-mini .txt b{color:var(--ink); font-weight:700;}
+  .ridecard{
+    display:flex; align-items:center; gap:14px; padding:12px 12px; border-radius:16px;
+    border:2px solid transparent; cursor:pointer; margin-bottom:8px; transition:all 0.15s ease;
+  }
+  .ridecard:hover{background:var(--paper-dim);}
+  .ridecard.sel{border-color:var(--ink); background:var(--paper-dim);}
+  .ride-emoji{
+    width:52px; height:52px; border-radius:14px; background:var(--paper-dim);
+    display:flex; align-items:center; justify-content:center; font-size:26px; flex-shrink:0;
+  }
+  .ridecard.sel .ride-emoji{background:var(--amber);}
+  .ride-info{flex:1;}
+  .ride-name{font-weight:700; font-size:14.5px;}
+  .ride-meta{font-size:12px; color:var(--mute-dark); font-weight:600; margin-top:1px;}
+  .ride-price{font-family:var(--mono); font-weight:700; font-size:15px;}
+
+  /* ---------- SCREEN 3: searching ---------- */
+  #searching{background:var(--ink);}
+  #searching .center{
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:26px; color:var(--paper);
+  }
+  .radar{width:180px; height:180px; position:relative; display:flex; align-items:center; justify-content:center;}
+  .radar-ring{position:absolute; inset:0; border-radius:50%; border:1.5px solid rgba(255,201,77,0.35); animation:radar 2.2s ease-out infinite;}
+  .radar-ring.r2{animation-delay:0.7s;}
+  .radar-ring.r3{animation-delay:1.4s;}
+  @keyframes radar{0%{transform:scale(0.3); opacity:0.9;} 100%{transform:scale(1); opacity:0;}}
+  .radar-core{width:64px; height:64px; border-radius:50%; background:var(--amber); display:flex; align-items:center; justify-content:center; font-size:28px; z-index:2; box-shadow:0 0 40px rgba(255,201,77,0.5);}
+  #searching h2{font-family:var(--disp); font-size:19px;}
+  #searching p{font-size:13px; color:var(--mute); margin-top:4px;}
+  .cancel-link{margin-top:12px; background:none; border:none; color:var(--mute); font-weight:700; font-size:13px; text-decoration:underline; cursor:pointer;}
+
+  /* ---------- SCREEN 4: matched ---------- */
+  #matched .sheet{padding-top:0;}
+  .eta-strip{
+    background:var(--ink); color:var(--paper); padding:16px 22px; border-radius:20px 20px 0 0;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .eta-strip .big{font-family:var(--mono); font-size:26px; font-weight:700; color:var(--amber);}
+  .eta-strip .lbl{font-size:11px; color:var(--mute); font-weight:700; letter-spacing:0.06em; text-transform:uppercase;}
+  .drivercard{display:flex; align-items:center; gap:14px; padding:18px 0; border-bottom:1px solid var(--line);}
+  .avatar{
+    width:58px; height:58px; border-radius:50%; background:linear-gradient(135deg,#3C4560,#1B2029);
+    display:flex; align-items:center; justify-content:center; font-family:var(--disp); font-weight:700; color:var(--paper); font-size:18px; flex-shrink:0;
+  }
+  .driver-name{font-weight:800; font-size:16px;}
+  .driver-sub{font-size:12.5px; color:var(--mute-dark); font-weight:600; margin-top:2px;}
+  .rating-pill{display:inline-flex; align-items:center; gap:3px; font-size:12px; font-weight:700; margin-top:4px; color:var(--amber-deep);}
+  .plate{
+    font-family:var(--mono); font-weight:700; font-size:13px; background:var(--ink); color:var(--paper);
+    padding:4px 10px; border-radius:6px; letter-spacing:0.05em;
+  }
+  .actionrow{display:flex; gap:10px; margin:16px 0;}
+  .roundbtn{
+    flex:1; padding:13px; border-radius:14px; background:var(--paper-dim); border:none;
+    display:flex; align-items:center; justify-content:center; gap:6px; font-weight:700; font-size:13px; cursor:pointer;
+  }
+
+  /* ---------- SCREEN 5: trip ---------- */
+  .meter{
+    position:absolute; top:56px; left:20px; right:20px; z-index:15;
+    background:var(--ink); border-radius:18px; padding:14px 18px;
+    display:flex; align-items:center; justify-content:space-between;
+    box-shadow:0 12px 30px rgba(16,19,26,0.3);
+  }
+  .meter .seg{display:flex; flex-direction:column; gap:2px;}
+  .meter .seg .l{font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--mute); font-weight:700;}
+  .meter .seg .v{font-family:var(--mono); font-weight:700; color:var(--paper); font-size:16px;}
+  .meter .seg .v.amber{color:var(--amber);}
+  .meter .divider{width:1px; height:26px; background:rgba(255,255,255,0.12);}
+
+  #trip .sheet{padding-bottom:26px;}
+  .progressline{height:4px; background:var(--line); border-radius:2px; overflow:hidden; margin:14px 0 18px;}
+  .progressfill{height:100%; background:var(--teal); border-radius:2px; width:8%; transition:width 0.4s ease;}
+  .triprow{display:flex; align-items:center; gap:12px; padding:6px 0;}
+  .triprow .sq, .triprow .cir{flex-shrink:0;}
+  .stopline{font-size:14px; font-weight:600; color:var(--mute-dark);}
+  .stopline b{color:var(--ink);}
+
+  /* ---------- SCREEN 6: complete ---------- */
+  #complete{background:var(--paper);}
+  #complete .wrap{position:absolute; inset:0; display:flex; flex-direction:column; padding:80px 26px 26px; align-items:center; text-align:center;}
+  .checkring{
+    width:76px; height:76px; border-radius:50%; background:var(--teal); display:flex; align-items:center; justify-content:center;
+    font-size:34px; color:var(--ink); margin-bottom:18px; box-shadow:0 12px 30px rgba(45,212,191,0.35);
+  }
+  .fare-big{font-family:var(--mono); font-size:40px; font-weight:700; margin:6px 0 2px;}
+  .stars{display:flex; gap:8px; margin:22px 0 6px;}
+  .star{font-size:32px; cursor:pointer; color:var(--line); transition:transform 0.1s ease;}
+  .star.on{color:var(--amber);}
+  .star:active{transform:scale(1.15);}
+  .tiprow{display:flex; gap:8px; width:100%; margin:18px 0;}
+  .tipchip{
+    flex:1; padding:12px 0; border-radius:12px; border:1.5px solid var(--line); font-weight:700; font-size:13px; cursor:pointer; background:transparent;
+  }
+  .tipchip.on{background:var(--ink); color:var(--paper); border-color:var(--ink);}
+  .receiptline{display:flex; justify-content:space-between; width:100%; font-size:13px; color:var(--mute-dark); font-weight:600; padding:5px 0;}
+  .receiptline b{color:var(--ink); font-weight:700;}
+  .receipt{width:100%; padding:16px 0; border-top:1px dashed var(--line); border-bottom:1px dashed var(--line); margin:12px 0 20px;}
+</style>
+</head>
+<body>
+
+<div class="rig">
+  <div class="brandline"><span class="dot"></span><b>ZWAKALA</b><span>&nbsp;— passenger app prototype</span></div>
+
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="statusbar"><span id="clock">9:41</span><span>●●● 5G 100%</span></div>
+
+    <!-- SCREEN 1: HOME -->
+    <section class="screen active" id="home">
+      <div class="map">
+        <svg viewBox="0 0 390 820" preserveAspectRatio="xMidYMid slice">
+          <rect x="0" y="0" width="390" height="820" fill="#E9E6DC"/>
+          <g id="grid-home"></g>
+          <circle class="pulse-ring" cx="195" cy="360" r="18"/>
+          <circle cx="195" cy="360" r="9" fill="#10131A"/>
+          <circle cx="195" cy="360" r="4" fill="#FFC94D"/>
+        </svg>
+      </div>
+      <div class="topbar">
+        <button class="iconbtn" aria-label="menu">☰</button>
+        <button class="iconbtn" aria-label="account">👤</button>
+      </div>
+      <div class="searchcard">
+        <div class="chiprow">
+          <div class="chip">🏠 Home</div>
+          <div class="chip">💼 Work</div>
+          <div class="chip">🛫 Airport</div>
+          <div class="chip">⭐ Saved</div>
+        </div>
+      </div>
+      <div class="bottomtab">
+        <div class="greet">Good evening</div>
+        <h2 class="disp">Where are you headed?</h2>
+        <div style="margin-top:12px;">
+          <div class="field" onclick="goTo('rides')">
+            <div class="dotcol"><div class="cir"></div></div>
+            <div class="field-text">Tap to set destination</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 2: RIDE SELECT -->
+    <section class="screen" id="rides">
+      <div class="map">
+        <svg viewBox="0 0 390 820" preserveAspectRatio="xMidYMid slice">
+          <rect x="0" y="0" width="390" height="820" fill="#E9E6DC"/>
+          <g id="grid-rides"></g>
+          <path class="route-path" d="M 90 620 C 130 520, 110 420, 180 340 S 300 220, 260 130"/>
+          <circle cx="90" cy="620" r="8" fill="#10131A"/>
+          <g class="pin" transform="translate(260,130)">
+            <path d="M0,-26 C13,-26 22,-16 22,-4 C22,14 0,26 0,26 C0,26 -22,14 -22,-4 C-22,-16 -13,-26 0,-26 Z" fill="#10131A"/>
+            <circle cx="0" cy="-4" r="7" fill="#FFC94D"/>
+          </g>
+        </svg>
+      </div>
+      <div class="topbar" style="top:56px;">
+        <button class="iconbtn" onclick="goTo('home')" aria-label="back">←</button>
+      </div>
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div class="route-mini">
+          <span>🧭</span>
+          <div class="txt">Current location → <b id="destLabel">142 Church Street, Arcadia</b></div>
+        </div>
+        <div class="eyebrow" style="margin-bottom:10px;">Choose a ride</div>
+
+        <div id="rideList"></div>
+
+        <div style="margin-top:16px;">
+          <button class="btn-primary amber" id="confirmRideBtn" onclick="goTo('searching')">
+            Confirm <span id="confirmPrice" class="fare-mono"></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 3: SEARCHING -->
+    <section class="screen" id="searching">
+      <div class="center">
+        <div class="radar">
+          <div class="radar-ring"></div>
+          <div class="radar-ring r2"></div>
+          <div class="radar-ring r3"></div>
+          <div class="radar-core">🚗</div>
+        </div>
+        <div style="text-align:center;">
+          <h2>Finding your driver</h2>
+          <p>Matching you with a nearby <span id="searchingType">Comfort</span> driver…</p>
+        </div>
+        <button class="cancel-link" onclick="goTo('home')">Cancel request</button>
+      </div>
+    </section>
+
+    <!-- SCREEN 4: MATCHED -->
+    <section class="screen" id="matched">
+      <div class="map">
+        <svg viewBox="0 0 390 820" preserveAspectRatio="xMidYMid slice">
+          <rect x="0" y="0" width="390" height="820" fill="#E9E6DC"/>
+          <g id="grid-matched"></g>
+          <path class="route-path" d="M 250 210 C 210 280, 230 340, 195 360"/>
+          <circle cx="195" cy="360" r="9" fill="#10131A"/>
+          <circle cx="195" cy="360" r="4" fill="#FFC94D"/>
+          <g class="car-marker" id="matchedCar" transform="translate(250,210) rotate(40)">
+            <rect x="-11" y="-16" width="22" height="32" rx="8" fill="#10131A"/>
+            <rect x="-7" y="-10" width="14" height="10" rx="2" fill="#2DD4BF"/>
+          </g>
+        </svg>
+      </div>
+      <div class="topbar" style="top:56px;">
+        <button class="iconbtn" onclick="goTo('rides')" aria-label="back">←</button>
+        <button class="iconbtn" style="color:var(--danger)" aria-label="sos">✕</button>
+      </div>
+      <div class="sheet">
+        <div class="eta-strip">
+          <div>
+            <div class="lbl">Driver arrives in</div>
+            <div class="big" id="etaCountdown">4 min</div>
+          </div>
+          <div style="font-size:34px;">🚗</div>
+        </div>
+        <div style="padding:6px 4px 0;">
+          <div class="drivercard">
+            <div class="avatar">TM</div>
+            <div style="flex:1;">
+              <div class="driver-name">Thabo Mokoena</div>
+              <div class="rating-pill">★ 4.92 · 3,140 trips</div>
+              <div class="driver-sub" style="margin-top:6px;">White Toyota Corolla</div>
+            </div>
+            <div class="plate">CA 42 KX</div>
+          </div>
+          <div class="actionrow">
+            <button class="roundbtn">💬 Message</button>
+            <button class="roundbtn">📞 Call</button>
+          </div>
+          <button class="btn-primary" onclick="startTrip()">Trip starting…</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 5: TRIP -->
+    <section class="screen" id="trip">
+      <div class="map">
+        <svg viewBox="0 0 390 820" preserveAspectRatio="xMidYMid slice">
+          <rect x="0" y="0" width="390" height="820" fill="#E9E6DC"/>
+          <g id="grid-trip"></g>
+          <path class="route-path" d="M 90 620 C 130 520, 110 420, 180 340 S 300 220, 260 130"/>
+          <circle cx="90" cy="620" r="8" fill="#B7B1A0"/>
+          <g class="pin" transform="translate(260,130)">
+            <path d="M0,-26 C13,-26 22,-16 22,-4 C22,14 0,26 0,26 C0,26 -22,14 -22,-4 C-22,-16 -13,-26 0,-26 Z" fill="#10131A"/>
+            <circle cx="0" cy="-4" r="7" fill="#FFC94D"/>
+          </g>
+          <g class="car-marker" id="tripCar" transform="translate(90,620) rotate(-20)">
+            <rect x="-11" y="-16" width="22" height="32" rx="8" fill="#10131A"/>
+            <rect x="-7" y="-10" width="14" height="10" rx="2" fill="#2DD4BF"/>
+          </g>
+        </svg>
+      </div>
+      <div class="meter">
+        <div class="seg"><span class="l">Fare</span><span class="v amber" id="meterFare">R00.00</span></div>
+        <div class="divider"></div>
+        <div class="seg"><span class="l">Distance</span><span class="v" id="meterDist">0.0 km</span></div>
+        <div class="divider"></div>
+        <div class="seg"><span class="l">ETA</span><span class="v" id="meterEta">9 min</span></div>
+      </div>
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <div class="driver-name" style="font-size:14.5px;">En route to Arcadia</div>
+          <span class="plate">CA 42 KX</span>
+        </div>
+        <div class="progressline"><div class="progressfill" id="tripProgress"></div></div>
+        <div class="triprow"><div class="sq" style="width:9px;height:9px;border-radius:2px;background:#10131A;"></div><div class="stopline">Pickup <b>· Church Street</b></div></div>
+        <div class="triprow"><div class="cir" style="width:9px;height:9px;border-radius:50%;border:2px solid #8A93A3;"></div><div class="stopline">Drop-off <b>· 142 Church Street, Arcadia</b></div></div>
+        <button class="btn-primary" style="margin-top:14px; background:var(--danger);" onclick="finishTrip()">Simulate: End trip</button>
+      </div>
+    </section>
+
+    <!-- SCREEN 6: COMPLETE -->
+    <section class="screen" id="complete">
+      <div class="wrap">
+        <div class="checkring">✓</div>
+        <div class="eyebrow">Trip complete</div>
+        <div class="fare-big" id="finalFare">R68.00</div>
+        <div style="font-size:12.5px; color:var(--mute-dark); font-weight:600;">Paid with •••• 4471</div>
+
+        <div style="margin-top:8px; font-size:14px; font-weight:700;">Rate Thabo</div>
+        <div class="stars" id="starRow">
+          <span class="star" data-v="1">★</span>
+          <span class="star" data-v="2">★</span>
+          <span class="star" data-v="3">★</span>
+          <span class="star" data-v="4">★</span>
+          <span class="star" data-v="5">★</span>
+        </div>
+
+        <div class="tiprow">
+          <button class="tipchip" onclick="setTip(this,0)">No tip</button>
+          <button class="tipchip" onclick="setTip(this,10)">R10</button>
+          <button class="tipchip" onclick="setTip(this,15)">R15</button>
+          <button class="tipchip" onclick="setTip(this,20)">R20</button>
+        </div>
+
+        <div class="receipt">
+          <div class="receiptline"><span>Base + distance</span><b id="rBase">R58.00</b></div>
+          <div class="receiptline"><span>Booking fee</span><b>R10.00</b></div>
+          <div class="receiptline"><span>Tip</span><b id="rTip">R0.00</b></div>
+          <div class="receiptline"><span>Total</span><b id="rTotal" style="font-family:var(--mono);">R68.00</b></div>
+        </div>
+
+        <button class="btn-primary amber" onclick="resetApp()">Done</button>
+      </div>
+    </section>
+
+  </div>
+
+  <div style="color:var(--mute); font-size:12px; text-align:center; max-width:340px; font-weight:500;">
+    Prototype only — simulated map, matching, and payments. No live location, network, or payment data is used.
+  </div>
+</div>
+
+<script>
+  // ---------- clock ----------
+  function tickClock(){
+    const d = new Date();
+    document.getElementById('clock').textContent =
+      d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12:false});
+  }
+  tickClock(); setInterval(tickClock, 30000);
+
+  // ---------- procedural city grid (drawn once per map) ----------
+  function drawGrid(id){
+    const g = document.getElementById(id);
+    if(!g) return;
+    let svg = '';
+    for(let x=10; x<390; x+=52){
+      svg += `<line class="grid-line${x%104<2?' bold':''}" x1="${x}" y1="0" x2="${x}" y2="820"/>`;
+    }
+    for(let y=20; y<820; y+=58){
+      svg += `<line class="grid-line${y%116<2?' bold':''}" x1="0" y1="${y}" x2="390" y2="${y}"/>`;
+    }
+    // scattered blocks for texture
+    const blocks = [[30,60,34,28],[140,90,46,34],[260,50,30,40],[70,180,40,30],[200,220,50,26],
+                     [300,300,32,44],[40,380,44,30],[160,420,36,36],[280,460,40,28],[60,540,50,30],
+                     [220,600,34,40],[320,660,30,30],[100,700,44,26]];
+    blocks.forEach(b=>{ svg += `<rect class="block" x="${b[0]}" y="${b[1]}" width="${b[2]}" height="${b[3]}" rx="4"/>`; });
+    g.insertAdjacentHTML('beforebegin', svg);
+  }
+  ['grid-home','grid-rides','grid-matched','grid-trip'].forEach(drawGrid);
+
+  // ---------- ride catalogue ----------
+  const RIDES = [
+    {id:'econ', name:'Econo', meta:'4 seats · 6 min away', emoji:'🚘', price:45, mult:1.0},
+    {id:'comfort', name:'Comfort', meta:'4 seats · 4 min away', emoji:'🚗', price:68, mult:1.0},
+    {id:'xl', name:'XL', meta:'6 seats · 7 min away', emoji:'🚙', price:95, mult:1.0},
+    {id:'lux', name:'Lux', meta:'4 seats · 9 min away', emoji:'🚖', price:150, mult:1.0},
+  ];
+  let selectedRide = RIDES[1];
+
+  function renderRides(){
+    const list = document.getElementById('rideList');
+    list.innerHTML = RIDES.map(r => `
+      <div class="ridecard ${r.id===selectedRide.id?'sel':''}" onclick="selectRide('${r.id}')">
+        <div class="ride-emoji">${r.emoji}</div>
+        <div class="ride-info">
+          <div class="ride-name">${r.name}</div>
+          <div class="ride-meta">${r.meta}</div>
+        </div>
+        <div class="ride-price fare-mono">R${r.price.toFixed(2)}</div>
+      </div>
+    `).join('');
+    document.getElementById('confirmPrice').textContent = 'R' + selectedRide.price.toFixed(2);
+    document.getElementById('searchingType').textContent = selectedRide.name;
+  }
+  function selectRide(id){
+    selectedRide = RIDES.find(r=>r.id===id);
+    renderRides();
+  }
+  renderRides();
+
+  // ---------- screen navigation ----------
+  const screens = ['home','rides','searching','matched','trip','complete'];
+  function goTo(id){
+    screens.forEach(s => document.getElementById(s).classList.toggle('active', s===id));
+    if(id==='searching'){
+      setTimeout(()=>goTo('matched'), 2600);
+    }
+    if(id==='matched'){
+      runEtaCountdown();
+    }
+  }
+
+  // ---------- ETA countdown on matched screen ----------
+  let etaTimer=null;
+  function runEtaCountdown(){
+    clearInterval(etaTimer);
+    let secs = 4*60;
+    const el = document.getElementById('etaCountdown');
+    etaTimer = setInterval(()=>{
+      secs -= 6; // accelerated for demo purposes
+      if(secs<=0){ clearInterval(etaTimer); el.textContent = 'Arrived'; return; }
+      const m = Math.floor(secs/60), s = secs%60;
+      el.textContent = `${m} min`;
+      // drive the car marker toward pickup along the path
+      const t = 1 - (secs/(4*60));
+      const car = document.getElementById('matchedCar');
+      const x = 250 - 55*t, y = 210 + 150*t;
+      car.setAttribute('transform', `translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${40+30*t})`);
+    }, 400);
+  }
+
+  function startTrip(){
+    goTo('trip');
+    runTripMeter();
+  }
+
+  // ---------- live meter during trip ----------
+  let tripTimer=null;
+  function runTripMeter(){
+    clearInterval(tripTimer);
+    let progress = 0;
+    const baseFare = selectedRide.price;
+    document.getElementById('meterFare').textContent = 'R0.00';
+    document.getElementById('meterDist').textContent = '0.0 km';
+    document.getElementById('meterEta').textContent = '9 min';
+    document.getElementById('tripProgress').style.width = '4%';
+
+    const car = document.getElementById('tripCar');
+    // approximate points along the SVG path for a believable drive animation
+    const pts = [[90,620],[110,560],[130,520],[120,470],[110,420],[150,370],[180,340],[220,290],[260,230],[260,130]];
+    let i = 0;
+
+    tripTimer = setInterval(()=>{
+      progress += 4;
+      if(progress>100){
+        clearInterval(tripTimer);
+        progress = 100;
+      }
+      const pct = progress/100;
+      document.getElementById('tripProgress').style.width = pct*100 + '%';
+      document.getElementById('meterFare').textContent = 'R' + (baseFare*pct).toFixed(2);
+      document.getElementById('meterDist').textContent = (7.4*pct).toFixed(1) + ' km';
+      document.getElementById('meterEta').textContent = Math.max(0, Math.round(9*(1-pct))) + ' min';
+
+      const idx = Math.min(pts.length-1, Math.floor(pct*(pts.length-1)));
+      const [x,y] = pts[idx];
+      car.setAttribute('transform', `translate(${x},${y}) rotate(${-20+40*pct})`);
+
+      if(progress>=100){
+        setTimeout(finishTrip, 500);
+      }
+    }, 260);
+  }
+
+  function finishTrip(){
+    clearInterval(tripTimer);
+    const fare = selectedRide.price;
+    document.getElementById('finalFare').textContent = 'R' + fare.toFixed(2);
+    document.getElementById('rBase').textContent = 'R' + (fare-10).toFixed(2);
+    document.getElementById('rTip').textContent = 'R0.00';
+    document.getElementById('rTotal').textContent = 'R' + fare.toFixed(2);
+    tipAmount = 0;
+    document.querySelectorAll('.tipchip').forEach(c=>c.classList.remove('on'));
+    document.querySelectorAll('.star').forEach(s=>s.classList.remove('on'));
+    goTo('complete');
+  }
+
+  // ---------- rating stars ----------
+  document.querySelectorAll('.star').forEach(star=>{
+    star.addEventListener('click', ()=>{
+      const v = +star.dataset.v;
+      document.querySelectorAll('.star').forEach(s=>{
+        s.classList.toggle('on', +s.dataset.v <= v);
+      });
+    });
+  });
+
+  // ---------- tip + receipt total ----------
+  let tipAmount = 0;
+  function setTip(btn, amt){
+    tipAmount = amt;
+    document.querySelectorAll('.tipchip').forEach(c=>c.classList.remove('on'));
+    btn.classList.add('on');
+    const base = selectedRide.price;
+    document.getElementById('rTip').textContent = 'R' + amt.toFixed(2);
+    document.getElementById('rTotal').textContent = 'R' + (base+amt).toFixed(2);
+    document.getElementById('finalFare').textContent = 'R' + (base+amt).toFixed(2);
+  }
+
+  function resetApp(){
+    goTo('home');
+  }
+</script>
+</body>
+</html>
