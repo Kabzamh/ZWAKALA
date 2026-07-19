@@ -1,0 +1,796 @@
+openapi: 3.0.3
+info:
+  title: Zwakala API
+  description: >
+    MVP REST API for the Zwakala ride-hailing platform. Covers the core loop shown
+    in the passenger prototype: authenticate, estimate a fare, request a ride,
+    match with a driver, run the trip, pay, and rate. Fleet management, dispatch,
+    and admin endpoints are separate modules, out of scope here.
+  version: "0.1.0"
+servers:
+  - url: https://api.zwakala.app/v1
+    description: Production
+  - url: https://staging-api.zwakala.app/v1
+    description: Staging
+
+tags:
+  - name: Auth
+  - name: Users
+  - name: RideTypes
+  - name: Rides
+  - name: Driver
+  - name: Payments
+  - name: Wallet
+  - name: Ratings
+  - name: Promo
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ---------------- Auth ----------------
+  /auth/otp/request:
+    post:
+      tags: [Auth]
+      summary: Request an OTP code for phone login/registration
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone: { type: string, example: "+27821234567" }
+      responses:
+        "200":
+          description: OTP sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  otpId: { type: string, format: uuid }
+                  expiresInSeconds: { type: integer, example: 300 }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /auth/otp/verify:
+    post:
+      tags: [Auth]
+      summary: Verify OTP and receive access/refresh tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [otpId, code]
+              properties:
+                otpId: { type: string, format: uuid }
+                code: { type: string, example: "482913" }
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthTokens" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { description: Invalid or expired code }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Exchange a refresh token for a new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        "200":
+          description: New token pair issued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthTokens" }
+        "401": { description: Refresh token invalid or expired }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Invalidate the current refresh token
+      responses:
+        "204": { description: Logged out }
+
+  # ---------------- Users ----------------
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get the current user's profile
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+    patch:
+      tags: [Users]
+      summary: Update profile fields
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName: { type: string }
+                email: { type: string, format: email }
+                avatarUrl: { type: string, format: uri }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+
+  /users/me/saved-addresses:
+    get:
+      tags: [Users]
+      summary: List saved addresses (Home, Work, custom)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SavedAddress" }
+    post:
+      tags: [Users]
+      summary: Save a new address
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SavedAddressInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SavedAddress" }
+
+  /users/me/saved-addresses/{addressId}:
+    delete:
+      tags: [Users]
+      summary: Remove a saved address
+      parameters:
+        - $ref: "#/components/parameters/AddressId"
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /users/me/payment-methods:
+    get:
+      tags: [Users]
+      summary: List saved payment methods
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PaymentMethod" }
+    post:
+      tags: [Users]
+      summary: Attach a new payment method (tokenized via provider, e.g. Stripe)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [providerToken]
+              properties:
+                providerToken: { type: string, description: "Token from Stripe Elements / SDK, never a raw card number" }
+                setAsDefault: { type: boolean, default: false }
+      responses:
+        "201":
+          description: Attached
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentMethod" }
+
+  /users/me/payment-methods/{methodId}:
+    delete:
+      tags: [Users]
+      summary: Remove a payment method
+      parameters:
+        - name: methodId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Deleted }
+
+  # ---------------- Ride types ----------------
+  /ride-types:
+    get:
+      tags: [RideTypes]
+      summary: List available ride tiers (Econo, Comfort, XL, Lux) for a location
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema: { type: number, format: double }
+        - name: lng
+          in: query
+          required: true
+          schema: { type: number, format: double }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RideType" }
+
+  # ---------------- Rides (passenger side) ----------------
+  /rides/estimate:
+    post:
+      tags: [Rides]
+      summary: Get fare and ETA estimates for each ride type between two points
+      description: >
+        Powers the ride-select screen. Does not create a ride or reserve a driver —
+        pure pricing/ETA calculation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EstimateRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RideEstimate" }
+
+  /rides:
+    post:
+      tags: [Rides]
+      summary: Request a ride
+      description: >
+        Creates a ride in REQUESTED status and kicks off driver matching.
+        Client should then subscribe to the ride's realtime channel
+        (see WebSocket Events in the accompanying doc) to hear ACCEPTED / NO_DRIVERS_FOUND.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRideRequest" }
+      responses:
+        "201":
+          description: Ride created, matching in progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ride" }
+        "409":
+          description: Passenger already has an active ride
+    get:
+      tags: [Rides]
+      summary: List the current user's ride history
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/RideStatus" }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Ride" }
+                  page: { type: integer }
+                  totalPages: { type: integer }
+
+  /rides/{rideId}:
+    get:
+      tags: [Rides]
+      summary: Get ride details (also used for polling fallback if not using websockets)
+      parameters:
+        - $ref: "#/components/parameters/RideId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ride" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /rides/{rideId}/cancel:
+    post:
+      tags: [Rides]
+      summary: Cancel a ride (passenger or driver)
+      parameters:
+        - $ref: "#/components/parameters/RideId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, example: "Changed plans" }
+      responses:
+        "200":
+          description: Cancelled, with cancellation fee if applicable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ride" }
+        "409":
+          description: Ride already completed or too far along to cancel
+
+  /rides/{rideId}/apply-promo:
+    post:
+      tags: [Promo]
+      summary: Apply a promo code to a not-yet-completed ride
+      parameters:
+        - $ref: "#/components/parameters/RideId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, example: "WELCOME20" }
+      responses:
+        "200":
+          description: Promo applied, fare recalculated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ride" }
+        "400":
+          description: Code invalid, expired, or already used
+
+  /rides/{rideId}/rating:
+    post:
+      tags: [Ratings]
+      summary: Rate the other party after a completed ride
+      description: Called by both passenger (rating the driver) and driver (rating the passenger).
+      parameters:
+        - $ref: "#/components/parameters/RideId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stars]
+              properties:
+                stars: { type: integer, minimum: 1, maximum: 5 }
+                comment: { type: string }
+      responses:
+        "201":
+          description: Rating recorded
+        "409":
+          description: Rating already submitted for this ride by this user
+
+  # ---------------- Driver side ----------------
+  /driver/status:
+    patch:
+      tags: [Driver]
+      summary: Go online / offline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isOnline]
+              properties:
+                isOnline: { type: boolean }
+      responses:
+        "200": { description: Status updated }
+
+  /driver/location:
+    post:
+      tags: [Driver]
+      summary: Push a location heartbeat (also broadcast over websocket while on a trip)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lng]
+              properties:
+                lat: { type: number, format: double }
+                lng: { type: number, format: double }
+                heading: { type: number, description: "Degrees, 0-360" }
+      responses:
+        "204": { description: Recorded }
+
+  /rides/{rideId}/accept:
+    post:
+      tags: [Driver]
+      summary: Accept an incoming ride request
+      parameters:
+        - $ref: "#/components/parameters/RideId"
+      responses:
+        "200":
+          description: Ride moves to ACCEPTED, driver + vehicle attached
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ride" }
+        "409":
+          description: Ride already accepted by another driver or expired
+
+  /rides/{rideId}/decline:
+    post:
+      tags: [Driver]
+      summary: Decline an incoming ride request
+      parameters:
+        - $ref: "#/components/parameters/RideId"
+      responses:
+        "204": { description: Declined, offer routed to next nearest driver }
+
+  /rides/{rideId}/arrived:
+    post:
+      tags: [Driver]
+      summary: Mark driver as arrived at pickup
+      parameters:
+        - $ref: "#/components/parameters/RideId"
+      responses:
+        "200":
+          description: Ride moves to ARRIVED
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ride" }
+
+  /rides/{rideId}/start:
+    post:
+      tags: [Driver]
+      summary: Start the trip (passenger picked up)
+      parameters:
+        - $ref: "#/components/parameters/RideId"
+      responses:
+        "200":
+          description: Ride moves to IN_PROGRESS, meter starts
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ride" }
+
+  /rides/{rideId}/complete:
+    post:
+      tags: [Driver]
+      summary: Complete the trip at drop-off
+      parameters:
+        - $ref: "#/components/parameters/RideId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                finalDistanceKm: { type: number }
+                finalDurationMin: { type: integer }
+      responses:
+        "200":
+          description: Ride moves to COMPLETED, final fare locked, payment triggered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ride" }
+
+  # ---------------- Payments & wallet ----------------
+  /rides/{rideId}/pay:
+    post:
+      tags: [Payments]
+      summary: Charge the ride total (called automatically on trip completion for card/wallet; used for retry on failure)
+      parameters:
+        - $ref: "#/components/parameters/RideId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paymentMethodId: { type: string, format: uuid }
+                tipAmount: { type: number, default: 0 }
+      responses:
+        "200":
+          description: Payment captured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Payment" }
+        "402":
+          description: Payment failed (card declined, etc.)
+
+  /wallet:
+    get:
+      tags: [Wallet]
+      summary: Get wallet balance and recent transactions
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Wallet" }
+
+  /wallet/topup:
+    post:
+      tags: [Wallet]
+      summary: Top up wallet balance via a saved payment method
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, paymentMethodId]
+              properties:
+                amount: { type: number, example: 100.0 }
+                paymentMethodId: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Wallet credited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Wallet" }
+
+  # ---------------- Promo ----------------
+  /promo/validate:
+    post:
+      tags: [Promo]
+      summary: Check whether a promo code is valid before applying it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        "200":
+          description: Validity and discount preview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: { type: boolean }
+                  discountType: { type: string, enum: [PERCENTAGE, FIXED_AMOUNT] }
+                  discountValue: { type: number }
+                  reason: { type: string, description: "Populated when valid=false" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    RideId:
+      name: rideId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AddressId:
+      name: addressId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, default: 20, maximum: 100 }
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: "VALIDATION_ERROR" }
+            message: { type: string }
+            details: { type: object, nullable: true }
+
+    AuthTokens:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresIn: { type: integer, example: 3600 }
+        user: { $ref: "#/components/schemas/User" }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        role: { type: string, enum: [PASSENGER, DRIVER, ADMIN] }
+        fullName: { type: string }
+        phone: { type: string }
+        email: { type: string, nullable: true }
+        avatarUrl: { type: string, nullable: true }
+        ratingAvg: { type: number, example: 4.92 }
+        createdAt: { type: string, format: date-time }
+
+    SavedAddressInput:
+      type: object
+      required: [label, address, lat, lng]
+      properties:
+        label: { type: string, example: "Home" }
+        address: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+
+    SavedAddress:
+      allOf:
+        - $ref: "#/components/schemas/SavedAddressInput"
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+
+    PaymentMethod:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [CARD, CASH, WALLET] }
+        cardBrand: { type: string, nullable: true, example: "visa" }
+        cardLast4: { type: string, nullable: true, example: "4471" }
+        isDefault: { type: boolean }
+
+    RideType:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, example: "comfort" }
+        name: { type: string, example: "Comfort" }
+        capacity: { type: integer, example: 4 }
+        baseFare: { type: number }
+        perKmRate: { type: number }
+        perMinRate: { type: number }
+        iconEmoji: { type: string, example: "🚗" }
+
+    EstimateRequest:
+      type: object
+      required: [pickupLat, pickupLng, dropoffLat, dropoffLng]
+      properties:
+        pickupLat: { type: number }
+        pickupLng: { type: number }
+        dropoffLat: { type: number }
+        dropoffLng: { type: number }
+        promoCode: { type: string, nullable: true }
+
+    RideEstimate:
+      type: object
+      properties:
+        rideTypeId: { type: string, format: uuid }
+        rideTypeCode: { type: string, example: "comfort" }
+        etaMinutesToPickup: { type: integer, example: 4 }
+        estimatedFare: { type: number, example: 68.0 }
+        surgeMultiplier: { type: number, example: 1.0 }
+        distanceKm: { type: number, example: 7.4 }
+        durationMin: { type: integer, example: 18 }
+
+    RideStatus:
+      type: string
+      enum:
+        - REQUESTED
+        - ACCEPTED
+        - ARRIVED
+        - IN_PROGRESS
+        - COMPLETED
+        - CANCELLED_BY_PASSENGER
+        - CANCELLED_BY_DRIVER
+        - NO_DRIVERS_FOUND
+
+    CreateRideRequest:
+      type: object
+      required: [rideTypeId, pickupAddress, pickupLat, pickupLng, dropoffAddress, dropoffLat, dropoffLng]
+      properties:
+        rideTypeId: { type: string, format: uuid }
+        pickupAddress: { type: string }
+        pickupLat: { type: number }
+        pickupLng: { type: number }
+        dropoffAddress: { type: string }
+        dropoffLat: { type: number }
+        dropoffLng: { type: number }
+        paymentMethodId: { type: string, format: uuid, description: "Omit to use wallet/cash default" }
+        promoCode: { type: string, nullable: true }
+
+    Ride:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/RideStatus" }
+        passengerId: { type: string, format: uuid }
+        driverId: { type: string, format: uuid, nullable: true }
+        vehicle:
+          type: object
+          nullable: true
+          properties:
+            make: { type: string }
+            model: { type: string }
+            color: { type: string }
+            plateNumber: { type: string }
+        rideType: { $ref: "#/components/schemas/RideType" }
+        pickupAddress: { type: string }
+        dropoffAddress: { type: string }
+        distanceKm: { type: number, nullable: true }
+        durationMin: { type: integer, nullable: true }
+        baseFare: { type: number }
+        distanceFare: { type: number }
+        timeFare: { type: number }
+        surgeMultiplier: { type: number }
+        promoDiscount: { type: number }
+        totalFare: { type: number, nullable: true }
+        requestedAt: { type: string, format: date-time }
+        acceptedAt: { type: string, format: date-time, nullable: true }
+        startedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+
+    Payment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        rideId: { type: string, format: uuid }
+        method: { type: string, enum: [CARD, CASH, WALLET] }
+        amount: { type: number }
+        tipAmount: { type: number }
+        status: { type: string, enum: [PENDING, AUTHORIZED, CAPTURED, FAILED, REFUNDED] }
+
+    Wallet:
+      type: object
+      properties:
+        balance: { type: number, example: 240.5 }
+        currency: { type: string, example: "ZAR" }
+        recentTransactions:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [CREDIT, DEBIT] }
+              reason: { type: string }
+              amount: { type: number }
+              createdAt: { type: string, format: date-time }

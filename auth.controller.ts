@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RequestOtpDto } from './dto/request-otp.dto';
@@ -21,6 +21,13 @@ export class AuthController {
   @Post('otp/verify')
   verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.authService.verifyOtp(dto.otpId, dto.code);
+  }
+
+  @Public()
+  @Get('otp/dev-peek')
+  peekOtp(@Query('otpId') otpId: string) {
+    // Dev/test convenience only — see AuthService.peekOtpForDev for the guard.
+    return this.authService.peekOtpForDev(otpId);
   }
 
   @Public()

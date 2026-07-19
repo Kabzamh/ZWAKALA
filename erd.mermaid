@@ -1,0 +1,159 @@
+erDiagram
+    USERS ||--o| DRIVER_PROFILES : "may be a"
+    USERS ||--o{ RIDES : requests
+    USERS ||--o| WALLETS : has
+    USERS ||--o{ SAVED_ADDRESSES : saves
+    USERS ||--o{ PAYMENT_METHODS : owns
+    USERS ||--o{ PAYMENTS : pays
+    USERS ||--o{ RATINGS : "gives"
+    USERS ||--o{ RATINGS : "receives"
+    USERS ||--o{ PROMO_REDEMPTIONS : redeems
+
+    DRIVER_PROFILES ||--o{ VEHICLES : owns
+    DRIVER_PROFILES ||--o{ RIDES : drives
+
+    RIDE_TYPES ||--o{ VEHICLES : classifies
+    RIDE_TYPES ||--o{ RIDES : prices
+
+    VEHICLES ||--o{ RIDES : assigned_to
+
+    RIDES ||--o| PAYMENTS : "settled by"
+    RIDES ||--o{ RATINGS : generates
+    RIDES ||--o| PROMO_REDEMPTIONS : "discounted by"
+
+    WALLETS ||--o{ WALLET_TRANSACTIONS : logs
+
+    PROMO_CODES ||--o{ PROMO_REDEMPTIONS : redeemed_as
+
+    USERS {
+        uuid id PK
+        string role "PASSENGER | DRIVER | ADMIN"
+        string fullName
+        string phone UK
+        string email UK
+        decimal ratingAvg
+        boolean isActive
+    }
+
+    DRIVER_PROFILES {
+        uuid id PK
+        uuid userId FK
+        string licenseNumber UK
+        date licenseExpiry
+        string status "PENDING | APPROVED | SUSPENDED"
+        decimal ratingAvg
+        int totalTrips
+        boolean isOnline
+    }
+
+    VEHICLES {
+        uuid id PK
+        uuid driverId FK
+        uuid rideTypeId FK
+        string make
+        string model
+        int year
+        string plateNumber UK
+        string status
+    }
+
+    RIDE_TYPES {
+        uuid id PK
+        string code UK "econ | comfort | xl | lux"
+        string name
+        int capacity
+        decimal baseFare
+        decimal perKmRate
+        decimal perMinRate
+    }
+
+    RIDES {
+        uuid id PK
+        uuid passengerId FK
+        uuid driverId FK
+        uuid vehicleId FK
+        uuid rideTypeId FK
+        string status
+        string pickupAddress
+        decimal pickupLat
+        decimal pickupLng
+        string dropoffAddress
+        decimal dropoffLat
+        decimal dropoffLng
+        decimal distanceKm
+        int durationMin
+        decimal totalFare
+        datetime requestedAt
+        datetime completedAt
+    }
+
+    PAYMENTS {
+        uuid id PK
+        uuid rideId FK "unique"
+        uuid userId FK
+        string method "CARD | CASH | WALLET"
+        decimal amount
+        decimal tipAmount
+        string status
+        string providerRef
+    }
+
+    PAYMENT_METHODS {
+        uuid id PK
+        uuid userId FK
+        string type
+        string cardLast4
+        boolean isDefault
+    }
+
+    WALLETS {
+        uuid id PK
+        uuid userId FK "unique"
+        decimal balance
+        string currency
+    }
+
+    WALLET_TRANSACTIONS {
+        uuid id PK
+        uuid walletId FK
+        string type "CREDIT | DEBIT"
+        string reason
+        decimal amount
+        string reference
+    }
+
+    RATINGS {
+        uuid id PK
+        uuid rideId FK
+        uuid raterId FK
+        uuid rateeId FK
+        int stars
+        string comment
+    }
+
+    SAVED_ADDRESSES {
+        uuid id PK
+        uuid userId FK
+        string label
+        string address
+        decimal lat
+        decimal lng
+    }
+
+    PROMO_CODES {
+        uuid id PK
+        string code UK
+        string discountType
+        decimal discountValue
+        int maxUses
+        int usedCount
+        datetime expiresAt
+    }
+
+    PROMO_REDEMPTIONS {
+        uuid id PK
+        uuid promoId FK
+        uuid userId FK
+        uuid rideId FK "unique, nullable"
+        datetime createdAt
+    }

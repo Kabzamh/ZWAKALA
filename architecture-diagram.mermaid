@@ -1,0 +1,69 @@
+flowchart TB
+    subgraph Clients["Client apps"]
+        PA["Passenger App<br/>(React Native)"]
+        DA["Driver App<br/>(React Native)"]
+    end
+
+    subgraph Edge["Edge"]
+        LB["Load balancer / API gateway<br/>TLS termination, rate limiting"]
+    end
+
+    subgraph API["Zwakala API — NestJS (stateless, horizontally scaled)"]
+        AUTH["Auth module<br/>OTP + JWT"]
+        USERS["Users module"]
+        RIDETYPES["RideTypes module"]
+        RIDES["Rides module<br/>state machine + pricing"]
+        MATCH["Matching service<br/>offer/accept/decline/timeout"]
+        DRIVER["Driver module<br/>status + location"]
+        PAY["Payments module"]
+        WALLET["Wallet module"]
+        PROMO["Promo module"]
+        RT["Realtime gateway<br/>Socket.IO"]
+    end
+
+    subgraph Data["Data layer"]
+        PG[("PostgreSQL<br/>system of record")]
+        REDIS[("Redis<br/>OTP codes, offer state,<br/>websocket pub/sub adapter,<br/>driver geo-index")]
+    end
+
+    subgraph External["External providers"]
+        SMS["SMS provider<br/>(Twilio) — OTP delivery"]
+        STRIPE["Stripe<br/>card charges + payouts"]
+        MAPS["Directions provider<br/>(Google/Mapbox) — routing, ETA"]
+        FCM["Push notifications<br/>(FCM/APNs)"]
+    end
+
+    PA -- "REST (HTTPS)" --> LB
+    DA -- "REST (HTTPS)" --> LB
+    PA <-. "WebSocket" .-> RT
+    DA <-. "WebSocket" .-> RT
+
+    LB --> AUTH & USERS & RIDETYPES & RIDES & DRIVER & PAY & WALLET & PROMO
+
+    RIDES --> MATCH
+    MATCH -- "assigns driver, emits events" --> RT
+    DRIVER -- "location heartbeat" --> RT
+    RIDES -- "ride.status_changed" --> RT
+
+    AUTH --> REDIS
+    MATCH --> REDIS
+    RT -. "pub/sub across instances" .-> REDIS
+
+    AUTH --> PG
+    USERS --> PG
+    RIDETYPES --> PG
+    RIDES --> PG
+    DRIVER --> PG
+    PAY --> PG
+    WALLET --> PG
+    PROMO --> PG
+
+    AUTH -.-> SMS
+    PAY -.-> STRIPE
+    RIDES -.-> MAPS
+    RT -.-> FCM
+
+    style Clients fill:#F6F4EF,stroke:#10131A
+    style API fill:#EDEAE2,stroke:#10131A
+    style Data fill:#FFC94D,stroke:#10131A,color:#10131A
+    style External fill:#F6F4EF,stroke:#8A93A3,stroke-dasharray: 4 3

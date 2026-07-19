@@ -6,6 +6,7 @@
 <title>Zwakala — Ride Prototype</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 <style>
   :root{
     --ink:#10131A;
@@ -287,14 +288,88 @@
   .receiptline{display:flex; justify-content:space-between; width:100%; font-size:13px; color:var(--mute-dark); font-weight:600; padding:5px 0;}
   .receiptline b{color:var(--ink); font-weight:700;}
   .receipt{width:100%; padding:16px 0; border-top:1px dashed var(--line); border-bottom:1px dashed var(--line); margin:12px 0 20px;}
+
+  /* ---------- Google Maps live layer ---------- */
+  #gmap-layer{position:absolute; inset:0; background:#E9E6DC;}
+  #gmap-layer .gm-style{border-radius:0;}
+  body.live-maps .screen .map{display:none !important;}
+  .map-badge{
+    position:absolute; top:14px; left:50%; transform:translateX(-50%); z-index:8;
+    background:var(--ink); color:var(--paper); font-size:10px; font-weight:700;
+    letter-spacing:0.06em; text-transform:uppercase; padding:5px 10px; border-radius:100px;
+    display:flex; align-items:center; gap:5px; pointer-events:none; opacity:0.9;
+  }
+  .map-badge .dot{width:5px; height:5px; border-radius:50%; background:var(--teal);}
+
+  /* ---------- API key gate ---------- */
+  .keygate{
+    position:fixed; inset:0; background:rgba(11,13,19,0.86); backdrop-filter:blur(6px);
+    display:flex; align-items:center; justify-content:center; z-index:1000; padding:20px;
+  }
+  .keygate.hidden{display:none;}
+  .keycard{
+    background:var(--paper); border-radius:20px; padding:26px; max-width:380px; width:100%;
+    box-shadow:0 30px 60px rgba(0,0,0,0.5);
+  }
+  .keycard h3{font-family:var(--disp); font-size:18px; margin-bottom:8px;}
+  .keycard p{font-size:13px; color:var(--mute-dark); line-height:1.55; margin-bottom:6px;}
+  .keycard a{color:var(--ink); font-weight:700;}
+  .keycard input{
+    width:100%; padding:13px 14px; border-radius:12px; border:1.5px solid var(--line);
+    font-family:var(--mono); font-size:13px; margin:14px 0 10px; background:var(--paper-dim);
+  }
+  .keycard input:focus{outline:2px solid var(--ink); outline-offset:1px;}
+  .keycard .row{display:flex; gap:8px; margin-top:6px;}
+  .keycard .row .btn-primary, .keycard .row .btn-ghost{padding:13px;}
+  .key-error{color:var(--danger); font-size:12px; font-weight:700; margin-top:8px; display:none;}
 </style>
 </head>
 <body>
+
+<div class="keygate" id="authgate">
+  <div class="keycard">
+    <h3>🔐 Sign in to Zwakala</h3>
+    <p>This talks to a real backend at <code id="apiBaseLabel" style="font-family:var(--mono); background:var(--paper-dim); padding:2px 6px; border-radius:6px;">http://localhost:3000/v1</code>. Make sure it's running (<code style="font-family:var(--mono);">npm run start:dev</code>) and seeded.</p>
+
+    <div id="authStep1">
+      <input type="text" id="phoneInput" placeholder="+27820000001" value="+27820000001" autocomplete="off">
+      <p style="font-size:11.5px;">Pre-filled with the seeded demo passenger. Any phone number works — a new one just creates a fresh account.</p>
+      <div class="row">
+        <button class="btn-primary amber" style="width:100%;" onclick="requestOtp()">Send code</button>
+      </div>
+    </div>
+
+    <div id="authStep2" style="display:none;">
+      <input type="text" id="otpInput" placeholder="6-digit code" maxlength="6" autocomplete="off">
+      <div class="row">
+        <button class="btn-ghost" onclick="revealOtpDev()">Reveal code (dev)</button>
+        <button class="btn-primary amber" onclick="verifyOtp()">Verify &amp; sign in</button>
+      </div>
+    </div>
+
+    <div class="key-error" id="authError">Something went wrong — check the backend is running and try again.</div>
+  </div>
+</div>
+
+<div class="keygate hidden" id="keygate">
+  <div class="keycard">
+    <h3>🗺️ Add live Google Maps</h3>
+    <p>Drop in a Google Maps JavaScript API key (with the <b>Maps JavaScript</b> and <b>Directions</b> APIs enabled) to replace the stylized mock map with a real one — pickup is set near Church Square, dropoff in Arcadia, Tshwane.</p>
+    <p>Get a key at <a href="https://console.cloud.google.com/google/maps-apis" target="_blank" rel="noopener">console.cloud.google.com/google/maps-apis</a>. The key is only used in this browser tab — never sent anywhere but Google.</p>
+    <input type="text" id="apiKeyInput" placeholder="AIza…" autocomplete="off" spellcheck="false">
+    <div class="key-error" id="keyError">Couldn't load Google Maps with that key — check it's enabled for Maps JavaScript + Directions.</div>
+    <div class="row">
+      <button class="btn-ghost" onclick="skipLiveMaps()">Skip, use mock map</button>
+      <button class="btn-primary amber" onclick="submitApiKey()">Load map</button>
+    </div>
+  </div>
+</div>
 
 <div class="rig">
   <div class="brandline"><span class="dot"></span><b>ZWAKALA</b><span>&nbsp;— passenger app prototype</span></div>
 
   <div class="phone">
+    <div id="gmap-layer"></div>
     <div class="notch"></div>
     <div class="statusbar"><span id="clock">9:41</span><span>●●● 5G 100%</span></div>
 
@@ -361,7 +436,7 @@
         <div id="rideList"></div>
 
         <div style="margin-top:16px;">
-          <button class="btn-primary amber" id="confirmRideBtn" onclick="goTo('searching')">
+          <button class="btn-primary amber" id="confirmRideBtn" onclick="confirmRide()">
             Confirm <span id="confirmPrice" class="fare-mono"></span>
           </button>
         </div>
@@ -381,7 +456,7 @@
           <h2>Finding your driver</h2>
           <p>Matching you with a nearby <span id="searchingType">Comfort</span> driver…</p>
         </div>
-        <button class="cancel-link" onclick="goTo('home')">Cancel request</button>
+        <button class="cancel-link" onclick="cancelActiveRide()">Cancel request</button>
       </div>
     </section>
 
@@ -402,7 +477,7 @@
       </div>
       <div class="topbar" style="top:56px;">
         <button class="iconbtn" onclick="goTo('rides')" aria-label="back">←</button>
-        <button class="iconbtn" style="color:var(--danger)" aria-label="sos">✕</button>
+        <button class="iconbtn" style="color:var(--danger)" aria-label="cancel ride" onclick="cancelActiveRide()">✕</button>
       </div>
       <div class="sheet">
         <div class="eta-strip">
@@ -426,7 +501,7 @@
             <button class="roundbtn">💬 Message</button>
             <button class="roundbtn">📞 Call</button>
           </div>
-          <button class="btn-primary" onclick="startTrip()">Trip starting…</button>
+          <div id="matchedStatus" style="text-align:center; font-size:12.5px; font-weight:700; color:var(--mute-dark); padding:12px 0 2px;">Waiting for driver to arrive…</div>
         </div>
       </div>
     </section>
@@ -465,7 +540,7 @@
         <div class="progressline"><div class="progressfill" id="tripProgress"></div></div>
         <div class="triprow"><div class="sq" style="width:9px;height:9px;border-radius:2px;background:#10131A;"></div><div class="stopline">Pickup <b>· Church Street</b></div></div>
         <div class="triprow"><div class="cir" style="width:9px;height:9px;border-radius:50%;border:2px solid #8A93A3;"></div><div class="stopline">Drop-off <b>· 142 Church Street, Arcadia</b></div></div>
-        <button class="btn-primary" style="margin-top:14px; background:var(--danger);" onclick="finishTrip()">Simulate: End trip</button>
+        <div id="tripStatus" style="text-align:center; font-size:12.5px; font-weight:700; color:var(--mute-dark); margin-top:14px;">Trip in progress — your driver will complete it on arrival</div>
       </div>
     </section>
 
@@ -477,7 +552,7 @@
         <div class="fare-big" id="finalFare">R68.00</div>
         <div style="font-size:12.5px; color:var(--mute-dark); font-weight:600;">Paid with •••• 4471</div>
 
-        <div style="margin-top:8px; font-size:14px; font-weight:700;">Rate Thabo</div>
+        <div style="margin-top:8px; font-size:14px; font-weight:700;">Rate <span id="rateDriverName">your driver</span></div>
         <div class="stars" id="starRow">
           <span class="star" data-v="1">★</span>
           <span class="star" data-v="2">★</span>
@@ -500,18 +575,57 @@
           <div class="receiptline"><span>Total</span><b id="rTotal" style="font-family:var(--mono);">R68.00</b></div>
         </div>
 
-        <button class="btn-primary amber" onclick="resetApp()">Done</button>
+        <button class="btn-primary amber" onclick="doneAndRate()">Done</button>
       </div>
     </section>
 
   </div>
 
   <div style="color:var(--mute); font-size:12px; text-align:center; max-width:340px; font-weight:500;">
-    Prototype only — simulated map, matching, and payments. No live location, network, or payment data is used.
+    Talks to a real Zwakala API over REST + WebSocket. Payments are still mocked server-side — no real card is charged.
   </div>
 </div>
 
 <script>
+  // ---------- config ----------
+  const API_BASE = (new URLSearchParams(location.search).get('api')) || 'http://localhost:3000/v1';
+  document.getElementById('apiBaseLabel').textContent = API_BASE;
+
+  // Same coordinates used by the Google Maps layer below — defined here first
+  // since ride creation needs them too.
+  const PICKUP  = { lat: -25.7479, lng: 28.1879, address: 'Church Square, Pretoria CBD' };
+  const DROPOFF = { lat: -25.7439, lng: 28.2083, address: '142 Church Street, Arcadia' };
+
+  const RIDE_META = {
+    econ:    { name: 'Econo',    emoji: '🚘' },
+    comfort: { name: 'Comfort',  emoji: '🚗' },
+    xl:      { name: 'XL',       emoji: '🚙' },
+    lux:     { name: 'Lux',      emoji: '🚖' },
+  };
+
+  let auth = { accessToken: null, refreshToken: null, user: null };
+  let pendingOtpId = null;
+  let socket = null;
+  let currentRideId = null;
+  let rideEstimates = [];
+  let selectedEstimate = null;
+  let selectedStars = 0;
+
+  // ---------- API helper ----------
+  async function api(path, { method = 'GET', body, auth: needsAuth = true } = {}) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (needsAuth && auth.accessToken) headers.Authorization = `Bearer ${auth.accessToken}`;
+    const res = await fetch(`${API_BASE}${path}`, {
+      method, headers, body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = data?.error?.message || `Request failed (${res.status})`;
+      throw new Error(message);
+    }
+    return data;
+  }
+
   // ---------- clock ----------
   function tickClock(){
     const d = new Date();
@@ -520,7 +634,8 @@
   }
   tickClock(); setInterval(tickClock, 30000);
 
-  // ---------- procedural city grid (drawn once per map) ----------
+  // ---------- procedural city grid (drawn once per mock map, still used as
+  // a visual placeholder behind the live Google Map until it loads) ----------
   function drawGrid(id){
     const g = document.getElementById(id);
     if(!g) return;
@@ -531,7 +646,6 @@
     for(let y=20; y<820; y+=58){
       svg += `<line class="grid-line${y%116<2?' bold':''}" x1="0" y1="${y}" x2="390" y2="${y}"/>`;
     }
-    // scattered blocks for texture
     const blocks = [[30,60,34,28],[140,90,46,34],[260,50,30,40],[70,180,40,30],[200,220,50,26],
                      [300,300,32,44],[40,380,44,30],[160,420,36,36],[280,460,40,28],[60,540,50,30],
                      [220,600,34,40],[320,660,30,30],[100,700,44,26]];
@@ -540,147 +654,422 @@
   }
   ['grid-home','grid-rides','grid-matched','grid-trip'].forEach(drawGrid);
 
-  // ---------- ride catalogue ----------
-  const RIDES = [
-    {id:'econ', name:'Econo', meta:'4 seats · 6 min away', emoji:'🚘', price:45, mult:1.0},
-    {id:'comfort', name:'Comfort', meta:'4 seats · 4 min away', emoji:'🚗', price:68, mult:1.0},
-    {id:'xl', name:'XL', meta:'6 seats · 7 min away', emoji:'🚙', price:95, mult:1.0},
-    {id:'lux', name:'Lux', meta:'4 seats · 9 min away', emoji:'🚖', price:150, mult:1.0},
-  ];
-  let selectedRide = RIDES[1];
+  // ---------- auth: OTP request/verify against the real backend ----------
+  async function requestOtp(){
+    const phone = document.getElementById('phoneInput').value.trim();
+    hideAuthError();
+    try {
+      const res = await api('/auth/otp/request', { method: 'POST', body: { phone }, auth: false });
+      pendingOtpId = res.otpId;
+      document.getElementById('authStep1').style.display = 'none';
+      document.getElementById('authStep2').style.display = 'block';
+    } catch (err) {
+      showAuthError(err.message);
+    }
+  }
+
+  async function revealOtpDev(){
+    try {
+      const res = await api(`/auth/otp/dev-peek?otpId=${encodeURIComponent(pendingOtpId)}`, { auth: false });
+      document.getElementById('otpInput').value = res.code;
+    } catch (err) {
+      showAuthError('Dev peek unavailable — check the server console for the code instead.');
+    }
+  }
+
+  async function verifyOtp(){
+    const code = document.getElementById('otpInput').value.trim();
+    hideAuthError();
+    try {
+      const res = await api('/auth/otp/verify', { method: 'POST', body: { otpId: pendingOtpId, code }, auth: false });
+      auth = { accessToken: res.accessToken, refreshToken: res.refreshToken, user: res.user };
+      document.getElementById('authgate').classList.add('hidden');
+      document.getElementById('keygate').classList.remove('hidden');
+      connectSocket();
+      loadRideEstimates();
+    } catch (err) {
+      showAuthError(err.message);
+    }
+  }
+
+  function showAuthError(msg){
+    const el = document.getElementById('authError');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+  function hideAuthError(){
+    document.getElementById('authError').style.display = 'none';
+  }
+
+  // ---------- realtime ----------
+  function connectSocket(){
+    socket = io(`${API_BASE.replace('/v1','')}/v1/realtime`);
+
+    socket.on('connect', () => console.log('[zwakala] connected to realtime gateway'));
+    socket.on('connect_error', (err) => console.warn('[zwakala] socket connect error:', err.message));
+
+    socket.on('ride.driver_assigned', async (payload) => {
+      if (payload.rideId !== currentRideId) return;
+      const ride = await api(`/rides/${currentRideId}`);
+      document.getElementById('rateDriverName').textContent = 'your driver';
+      // The API doesn't currently return the driver's display name on the
+      // Ride resource (see api-design-notes.md) — the seeded demo only has
+      // one driver, so this is hardcoded rather than left blank.
+      const driverName = 'Thabo Mokoena';
+      document.querySelector('#matched .driver-name').textContent = driverName;
+      document.querySelector('#matched .plate').textContent = ride.vehicle?.plateNumber ?? '—';
+      document.querySelector('#trip .plate').textContent = ride.vehicle?.plateNumber ?? '—';
+      document.querySelector('#matched .driver-sub').textContent =
+        `${ride.vehicle?.color ?? ''} ${ride.vehicle?.make ?? ''} ${ride.vehicle?.model ?? ''}`.trim();
+      document.getElementById('matchedStatus').textContent = 'Waiting for driver to arrive…';
+      goTo('matched');
+      runEtaCountdown();
+    });
+
+    socket.on('ride.no_drivers_found', () => {
+      document.getElementById('searching').querySelector('h2').textContent = 'No drivers available';
+      document.getElementById('searching').querySelector('p').textContent = 'Try again in a moment.';
+      setTimeout(() => { currentRideId = null; goTo('home'); }, 2200);
+    });
+
+    socket.on('ride.status_changed', (payload) => {
+      if (payload.rideId !== currentRideId) return;
+      if (payload.status === 'ARRIVED') {
+        document.getElementById('matchedStatus').textContent = 'Your driver has arrived!';
+      } else if (payload.status === 'IN_PROGRESS') {
+        goTo('trip');
+        runTripMeter();
+      } else if (payload.status === 'COMPLETED') {
+        finalizeCompletedRide();
+      } else if (payload.status.startsWith('CANCELLED')) {
+        currentRideId = null;
+        goTo('home');
+      }
+    });
+
+    socket.on('driver.location_updated', (payload) => {
+      if (payload.rideId !== currentRideId || !liveMaps) return;
+      carMarker.setPosition({ lat: payload.lat, lng: payload.lng });
+    });
+  }
+
+  // ---------- ride estimates / selection ----------
+  async function loadRideEstimates(){
+    try {
+      rideEstimates = await api('/rides/estimate', {
+        method: 'POST',
+        body: { pickupLat: PICKUP.lat, pickupLng: PICKUP.lng, dropoffLat: DROPOFF.lat, dropoffLng: DROPOFF.lng },
+      });
+      selectedEstimate = rideEstimates.find(r => r.rideTypeCode === 'comfort') || rideEstimates[0];
+      renderRides();
+    } catch (err) {
+      console.warn('[zwakala] failed to load ride estimates:', err.message);
+    }
+  }
 
   function renderRides(){
     const list = document.getElementById('rideList');
-    list.innerHTML = RIDES.map(r => `
-      <div class="ridecard ${r.id===selectedRide.id?'sel':''}" onclick="selectRide('${r.id}')">
-        <div class="ride-emoji">${r.emoji}</div>
-        <div class="ride-info">
-          <div class="ride-name">${r.name}</div>
-          <div class="ride-meta">${r.meta}</div>
+    list.innerHTML = rideEstimates.map(r => {
+      const meta = RIDE_META[r.rideTypeCode] || { name: r.rideTypeCode, emoji: '🚗' };
+      const sel = selectedEstimate && r.rideTypeId === selectedEstimate.rideTypeId;
+      return `
+        <div class="ridecard ${sel?'sel':''}" onclick="selectRide('${r.rideTypeId}')">
+          <div class="ride-emoji">${meta.emoji}</div>
+          <div class="ride-info">
+            <div class="ride-name">${meta.name}</div>
+            <div class="ride-meta">${r.etaMinutesToPickup} min away · ${r.distanceKm} km trip</div>
+          </div>
+          <div class="ride-price fare-mono">R${r.estimatedFare.toFixed(2)}</div>
         </div>
-        <div class="ride-price fare-mono">R${r.price.toFixed(2)}</div>
-      </div>
-    `).join('');
-    document.getElementById('confirmPrice').textContent = 'R' + selectedRide.price.toFixed(2);
-    document.getElementById('searchingType').textContent = selectedRide.name;
+      `;
+    }).join('');
+    if (selectedEstimate) {
+      document.getElementById('confirmPrice').textContent = 'R' + selectedEstimate.estimatedFare.toFixed(2);
+      document.getElementById('searchingType').textContent = (RIDE_META[selectedEstimate.rideTypeCode] || {}).name || selectedEstimate.rideTypeCode;
+      document.getElementById('destLabel').textContent = DROPOFF.address;
+    }
   }
-  function selectRide(id){
-    selectedRide = RIDES.find(r=>r.id===id);
+  function selectRide(rideTypeId){
+    selectedEstimate = rideEstimates.find(r => r.rideTypeId === rideTypeId);
     renderRides();
   }
-  renderRides();
 
   // ---------- screen navigation ----------
   const screens = ['home','rides','searching','matched','trip','complete'];
   function goTo(id){
     screens.forEach(s => document.getElementById(s).classList.toggle('active', s===id));
-    if(id==='searching'){
-      setTimeout(()=>goTo('matched'), 2600);
-    }
-    if(id==='matched'){
-      runEtaCountdown();
+    updateLiveMapForScreen(id);
+  }
+
+  // ---------- ride lifecycle: real API calls ----------
+  async function confirmRide(){
+    if (!selectedEstimate) return;
+    try {
+      const ride = await api('/rides', {
+        method: 'POST',
+        body: {
+          rideTypeId: selectedEstimate.rideTypeId,
+          pickupAddress: PICKUP.address, pickupLat: PICKUP.lat, pickupLng: PICKUP.lng,
+          dropoffAddress: DROPOFF.address, dropoffLat: DROPOFF.lat, dropoffLng: DROPOFF.lng,
+        },
+      });
+      currentRideId = ride.id;
+      socket.emit('ride.subscribe', ride.id);
+      goTo('searching');
+    } catch (err) {
+      alert('Could not request a ride: ' + err.message);
     }
   }
 
-  // ---------- ETA countdown on matched screen ----------
+  async function cancelActiveRide(){
+    if (!currentRideId) { goTo('home'); return; }
+    try {
+      await api(`/rides/${currentRideId}/cancel`, { method: 'POST', body: { reason: 'Changed plans' } });
+    } catch (err) {
+      console.warn('[zwakala] cancel failed (ride may already be past cancellable state):', err.message);
+    } finally {
+      currentRideId = null;
+      goTo('home');
+    }
+  }
+
+  async function finalizeCompletedRide(){
+    const ride = await api(`/rides/${currentRideId}`);
+    const total = Number(ride.totalFare ?? 0);
+    document.getElementById('finalFare').textContent = 'R' + total.toFixed(2);
+    document.getElementById('rBase').textContent = 'R' + (total - 10).toFixed(2);
+    document.getElementById('rTip').textContent = 'R0.00';
+    document.getElementById('rTotal').textContent = 'R' + total.toFixed(2);
+    tipAmount = 0;
+    selectedStars = 0;
+    document.querySelectorAll('.tipchip').forEach(c=>c.classList.remove('on'));
+    document.querySelectorAll('.star').forEach(s=>s.classList.remove('on'));
+    goTo('complete');
+  }
+
+  // ---------- cosmetic animations (visual only — real transitions come
+  // from ride.status_changed above; these just move the car icon smoothly
+  // in the meantime since we don't have real driver GPS in this demo) ----------
   let etaTimer=null;
   function runEtaCountdown(){
     clearInterval(etaTimer);
     let secs = 4*60;
     const el = document.getElementById('etaCountdown');
     etaTimer = setInterval(()=>{
-      secs -= 6; // accelerated for demo purposes
+      secs -= 8;
       if(secs<=0){ clearInterval(etaTimer); el.textContent = 'Arrived'; return; }
       const m = Math.floor(secs/60), s = secs%60;
       el.textContent = `${m} min`;
-      // drive the car marker toward pickup along the path
       const t = 1 - (secs/(4*60));
       const car = document.getElementById('matchedCar');
       const x = 250 - 55*t, y = 210 + 150*t;
       car.setAttribute('transform', `translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${40+30*t})`);
+      if(liveMaps && driverPath){
+        const p = pointAlong(driverPath, t);
+        if(p){ carMarker.setPosition(p.position); carMarker.setIcon({ ...carMarker.getIcon(), rotation: p.heading }); }
+      }
     }, 400);
   }
 
-  function startTrip(){
-    goTo('trip');
-    runTripMeter();
-  }
-
-  // ---------- live meter during trip ----------
   let tripTimer=null;
   function runTripMeter(){
     clearInterval(tripTimer);
     let progress = 0;
-    const baseFare = selectedRide.price;
+    const baseFare = selectedEstimate ? selectedEstimate.estimatedFare : 0;
     document.getElementById('meterFare').textContent = 'R0.00';
     document.getElementById('meterDist').textContent = '0.0 km';
-    document.getElementById('meterEta').textContent = '9 min';
+    document.getElementById('meterEta').textContent = (selectedEstimate?.durationMin ?? 9) + ' min';
     document.getElementById('tripProgress').style.width = '4%';
 
     const car = document.getElementById('tripCar');
-    // approximate points along the SVG path for a believable drive animation
     const pts = [[90,620],[110,560],[130,520],[120,470],[110,420],[150,370],[180,340],[220,290],[260,230],[260,130]];
-    let i = 0;
 
     tripTimer = setInterval(()=>{
-      progress += 4;
-      if(progress>100){
-        clearInterval(tripTimer);
-        progress = 100;
-      }
+      progress += 2.5;
+      if(progress>=100){ clearInterval(tripTimer); progress = 100; }
       const pct = progress/100;
       document.getElementById('tripProgress').style.width = pct*100 + '%';
       document.getElementById('meterFare').textContent = 'R' + (baseFare*pct).toFixed(2);
-      document.getElementById('meterDist').textContent = (7.4*pct).toFixed(1) + ' km';
-      document.getElementById('meterEta').textContent = Math.max(0, Math.round(9*(1-pct))) + ' min';
+      document.getElementById('meterDist').textContent = ((selectedEstimate?.distanceKm ?? 7.4)*pct).toFixed(1) + ' km';
+      document.getElementById('meterEta').textContent = Math.max(0, Math.round((selectedEstimate?.durationMin ?? 9)*(1-pct))) + ' min';
 
       const idx = Math.min(pts.length-1, Math.floor(pct*(pts.length-1)));
       const [x,y] = pts[idx];
       car.setAttribute('transform', `translate(${x},${y}) rotate(${-20+40*pct})`);
 
-      if(progress>=100){
-        setTimeout(finishTrip, 500);
+      if(liveMaps && tripPath){
+        const p = pointAlong(tripPath, pct);
+        if(p){ carMarker.setPosition(p.position); carMarker.setIcon({ ...carMarker.getIcon(), rotation: p.heading }); }
       }
-    }, 260);
+      // Note: this timer only paces the visual meter. The real fare and the
+      // COMPLETED transition come from the driver's /complete call over the
+      // socket (see ride.status_changed above) — whichever finishes first,
+      // the server's number always wins in finalizeCompletedRide().
+    }, 220);
   }
 
-  function finishTrip(){
-    clearInterval(tripTimer);
-    const fare = selectedRide.price;
-    document.getElementById('finalFare').textContent = 'R' + fare.toFixed(2);
-    document.getElementById('rBase').textContent = 'R' + (fare-10).toFixed(2);
-    document.getElementById('rTip').textContent = 'R0.00';
-    document.getElementById('rTotal').textContent = 'R' + fare.toFixed(2);
-    tipAmount = 0;
-    document.querySelectorAll('.tipchip').forEach(c=>c.classList.remove('on'));
-    document.querySelectorAll('.star').forEach(s=>s.classList.remove('on'));
-    goTo('complete');
-  }
-
-  // ---------- rating stars ----------
+  // ---------- rating + tip ----------
   document.querySelectorAll('.star').forEach(star=>{
     star.addEventListener('click', ()=>{
-      const v = +star.dataset.v;
+      selectedStars = +star.dataset.v;
       document.querySelectorAll('.star').forEach(s=>{
-        s.classList.toggle('on', +s.dataset.v <= v);
+        s.classList.toggle('on', +s.dataset.v <= selectedStars);
       });
     });
   });
 
-  // ---------- tip + receipt total ----------
   let tipAmount = 0;
   function setTip(btn, amt){
     tipAmount = amt;
     document.querySelectorAll('.tipchip').forEach(c=>c.classList.remove('on'));
     btn.classList.add('on');
-    const base = selectedRide.price;
+    const base = Number(document.getElementById('finalFare').textContent.replace('R',''));
+    const newTotal = base - tipAmount + amt; // reset then reapply, keeps it idempotent across clicks
     document.getElementById('rTip').textContent = 'R' + amt.toFixed(2);
-    document.getElementById('rTotal').textContent = 'R' + (base+amt).toFixed(2);
-    document.getElementById('finalFare').textContent = 'R' + (base+amt).toFixed(2);
+    document.getElementById('rTotal').textContent = 'R' + newTotal.toFixed(2);
   }
 
-  function resetApp(){
+  async function doneAndRate(){
+    try {
+      if (tipAmount > 0 && currentRideId) {
+        await api(`/rides/${currentRideId}/pay`, { method: 'POST', body: { tipAmount } });
+      }
+      if (selectedStars > 0 && currentRideId) {
+        await api(`/rides/${currentRideId}/rating`, { method: 'POST', body: { stars: selectedStars } });
+      }
+    } catch (err) {
+      console.warn('[zwakala] rating/tip submission failed:', err.message);
+    }
+    currentRideId = null;
     goTo('home');
+  }
+
+
+  // ============================================================
+  // Google Maps integration (optional — falls back to the mock
+  // SVG map above if no key is supplied or the API fails to load)
+  // ============================================================
+  const DRIVER_START = { lat: -25.7514, lng: 28.1968 }; // Sunnyside, ~2km out
+
+  let liveMaps = false;
+  let gmap, directionsService;
+  let pickupMarker, dropoffMarker, carMarker;
+  let tripPath = null;   // road-following points, pickup -> dropoff
+  let driverPath = null; // road-following points, driver start -> pickup
+
+  // Muted "paper" custom style so the live map matches the mock map's palette
+  const MAP_STYLE = [
+    { elementType: 'geometry', stylers: [{ color: '#E9E6DC' }] },
+    { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+    { elementType: 'labels.text.fill', stylers: [{ color: '#8A93A3' }] },
+    { elementType: 'labels.text.stroke', stylers: [{ color: '#F6F4EF' }] },
+    { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
+    { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#F6F4EF' }] },
+    { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#DEDACE' }] },
+    { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+    { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+    { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#D7E4E0' }] },
+    { featureType: 'administrative', elementType: 'geometry', stylers: [{ visibility: 'off' }] },
+  ];
+
+  function submitApiKey(){
+    const key = document.getElementById('apiKeyInput').value.trim();
+    if(!key){ return; }
+    document.getElementById('keyError').style.display = 'none';
+    loadGoogleMaps(key);
+  }
+  function skipLiveMaps(){
+    document.getElementById('keygate').classList.add('hidden');
+  }
+
+  function loadGoogleMaps(key){
+    window.__gmapsFailed = () => {
+      document.getElementById('keyError').style.display = 'block';
+    };
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=geometry&callback=initMap`;
+    script.onerror = window.__gmapsFailed;
+    document.head.appendChild(script);
+  }
+
+  // Called by the Google Maps script itself once loaded (global callback)
+  window.initMap = function(){
+    liveMaps = true;
+    document.body.classList.add('live-maps');
+    document.getElementById('keygate').classList.add('hidden');
+
+    gmap = new google.maps.Map(document.getElementById('gmap-layer'), {
+      center: PICKUP, zoom: 15, styles: MAP_STYLE,
+      disableDefaultUI: true, gestureHandling: 'greedy', clickableIcons: false,
+    });
+    directionsService = new google.maps.DirectionsService();
+
+    pickupMarker = new google.maps.Marker({
+      map: gmap, position: PICKUP,
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#10131A', fillOpacity: 1, strokeColor: '#FFC94D', strokeWeight: 3 },
+    });
+    dropoffMarker = new google.maps.Marker({
+      map: null, position: DROPOFF,
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#10131A', fillOpacity: 1, strokeColor: '#FFC94D', strokeWeight: 3 },
+    });
+    carMarker = new google.maps.Marker({
+      map: null, position: DRIVER_START,
+      icon: { path: 'M -6,-11 L 6,-11 Q 9,-11 9,-6 L 9,11 L -9,11 L -9,-6 Q -9,-11 -6,-11 Z', scale: 1, fillColor: '#10131A', fillOpacity: 1, strokeColor: '#2DD4BF', strokeWeight: 2, anchor: new google.maps.Point(0, 0) },
+    });
+
+    computeRoute(DRIVER_START, PICKUP, (path) => { driverPath = path; });
+    computeRoute(PICKUP, DROPOFF, (path) => {
+      tripPath = path;
+      new google.maps.Polyline({
+        path, map: gmap, strokeColor: '#10131A', strokeOpacity: 0.9, strokeWeight: 4,
+      });
+      const bounds = new google.maps.LatLngBounds();
+      path.forEach(p => bounds.extend(p));
+      gmap.fitBounds(bounds, 60);
+    });
+  };
+
+  function computeRoute(origin, destination, onDone){
+    directionsService.route(
+      { origin, destination, travelMode: google.maps.TravelMode.DRIVING },
+      (result, status) => {
+        if(status === 'OK'){
+          onDone(result.routes[0].overview_path.map(p => ({ lat: p.lat(), lng: p.lng() })));
+        }
+      },
+    );
+  }
+
+  function pointAlong(path, t){
+    if(!path || path.length < 2) return null;
+    const idx = Math.min(path.length - 1, Math.floor(t * (path.length - 1)));
+    const nextIdx = Math.min(path.length - 1, idx + 1);
+    const heading = google.maps.geometry
+      ? google.maps.geometry.spherical.computeHeading(path[idx], path[nextIdx])
+      : 0;
+    return { position: path[idx], heading };
+  }
+
+  // Called from updateMapForScreen() below, keyed off the existing goTo() router
+  function updateLiveMapForScreen(id){
+    if(!liveMaps || !gmap) return;
+    pickupMarker.setMap(['home', 'rides', 'matched', 'trip'].includes(id) ? gmap : null);
+    dropoffMarker.setMap(['rides', 'trip'].includes(id) ? gmap : null);
+    carMarker.setMap(['matched', 'trip'].includes(id) ? gmap : null);
+
+    if(id === 'home'){
+      gmap.setCenter(PICKUP); gmap.setZoom(15);
+    } else if(id === 'matched' && driverPath){
+      const bounds = new google.maps.LatLngBounds();
+      driverPath.forEach(p => bounds.extend(p));
+      gmap.fitBounds(bounds, 80);
+      carMarker.setPosition(DRIVER_START);
+    } else if(id === 'trip' && tripPath){
+      const bounds = new google.maps.LatLngBounds();
+      tripPath.forEach(p => bounds.extend(p));
+      gmap.fitBounds(bounds, 60);
+      carMarker.setPosition(PICKUP);
+    }
   }
 </script>
 </body>
